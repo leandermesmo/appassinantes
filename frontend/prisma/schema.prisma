@@ -1,0 +1,336 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+}
+
+// ─────────────────────────────────────────────
+// USUÁRIOS
+// ─────────────────────────────────────────────
+model User {
+  id            String    @id @default(uuid()) @db.Char(36)
+  name          String?   @db.VarChar(100)
+  email         String    @unique @db.VarChar(255)
+  emailVerified DateTime? @map("email_verified")
+  image         String?   @db.VarChar(255)
+  passwordHash  String?   @map("password_hash") @db.VarChar(255)
+  role          UserRole  @default(USER)
+  status        UserStatus @default(ACTIVE)
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  // Relacionamentos
+  accounts           Account[]
+  sessions           Session[]
+  subscriptions      Subscription[]
+  payments           Payment[]
+  favorites          UserFavorite[]
+  refreshTokens      RefreshToken[]
+  adminActions       AdminLog[] @relation("AdminActions")
+  adminTargetActions AdminLog[] @relation("AdminTargetActions")
+
+  @@index([email], name: "idx_users_email")
+  @@index([status], name: "idx_users_status")
+  @@map("users")
+}
+
+model Account {
+  id                String  @id @default(uuid()) @db.Char(36)
+  userId            String  @map("user_id") @db.Char(36)
+  type              String  @db.VarChar(50)
+  provider          String  @db.VarChar(50)
+  providerAccountId String  @map("provider_account_id") @db.VarChar(255)
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String? @db.VarChar(50)
+  scope             String? @db.VarChar(255)
+  id_token          String? @db.Text
+  session_state     String? @db.VarChar(255)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(uuid()) @db.Char(36)
+  sessionToken String   @unique @map("session_token") @db.VarChar(255)
+  userId       String   @map("user_id") @db.Char(36)
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String   @db.VarChar(255)
+  token      String   @unique @db.VarChar(255)
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+// ─────────────────────────────────────────────
+// TOKENS DE ATUALIZAÇÃO (Sessões)
+// ─────────────────────────────────────────────
+model RefreshToken {
+  id        String   @id @default(uuid()) @db.Char(36)
+  token     String   @unique @db.VarChar(255)
+  userId    String   @map("user_id") @db.Char(36)
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Relacionamento
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId], name: "idx_rt_user")
+  @@map("refresh_tokens")
+}
+
+// ─────────────────────────────────────────────
+// PLANOS
+// ─────────────────────────────────────────────
+model Plan {
+  id           Int          @id @default(autoincrement())
+  name         String       @db.VarChar(100)
+  description  String?      @db.Text
+  price        Decimal      @db.Decimal(10, 2)
+  billingCycle BillingCycle @map("billing_cycle")
+  // Armazena JSON com as features do plano
+  // Ex: {"maxFavorites": 10, "hasSignalAlerts": true, "hasVipSignals": false}
+  features     Json
+  isActive     Boolean      @default(true) @map("is_active")
+  createdAt    DateTime     @default(now()) @map("created_at")
+  updatedAt    DateTime     @updatedAt @map("updated_at")
+
+  // Relacionamentos
+  subscriptions Subscription[]
+
+  @@index([isActive], name: "idx_plans_active")
+  @@map("plans")
+}
+
+// ─────────────────────────────────────────────
+// ASSINATURAS
+// ─────────────────────────────────────────────
+model Subscription {
+  id                 String             @id @default(uuid()) @db.Char(36)
+  userId             String             @map("user_id") @db.Char(36)
+  planId             Int                @map("plan_id")
+  status             SubscriptionStatus @default(ACTIVE)
+  currentPeriodStart DateTime           @map("current_period_start")
+  currentPeriodEnd   DateTime           @map("current_period_end")
+  canceledAt         DateTime?          @map("canceled_at")
+  createdAt          DateTime           @default(now()) @map("created_at")
+  updatedAt          DateTime           @updatedAt @map("updated_at")
+
+  // Relacionamentos
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan     Plan      @relation(fields: [planId], references: [id])
+  payments Payment[]
+
+  @@index([userId, status], name: "idx_sub_user_status")
+  @@index([currentPeriodEnd], name: "idx_sub_end_date")
+  @@map("subscriptions")
+}
+
+// ─────────────────────────────────────────────
+// PAGAMENTOS
+// ─────────────────────────────────────────────
+model Payment {
+  id                    String        @id @default(uuid()) @db.Char(36)
+  subscriptionId        String        @map("subscription_id") @db.Char(36)
+  userId                String        @map("user_id") @db.Char(36)
+  amount                Decimal       @db.Decimal(10, 2)
+  currency              String        @default("BRL") @db.VarChar(3)
+  status                PaymentStatus @default(PENDING)
+  paymentMethod         String        @map("payment_method") @db.VarChar(50)
+  // ID retornado pelo gateway de pagamento (Stripe, Pagar.me, etc.)
+  externalTransactionId String?       @unique @map("external_transaction_id") @db.VarChar(100)
+  createdAt             DateTime      @default(now()) @map("created_at")
+  updatedAt             DateTime      @updatedAt @map("updated_at")
+
+  // Relacionamentos
+  user         User         @relation(fields: [userId], references: [id])
+  subscription Subscription @relation(fields: [subscriptionId], references: [id])
+
+  @@index([userId], name: "idx_pay_user")
+  @@index([status], name: "idx_pay_status")
+  @@map("payments")
+}
+
+// ─────────────────────────────────────────────
+// CRIPTOMOEDAS
+// ─────────────────────────────────────────────
+model Cryptocurrency {
+  id         Int     @id @default(autoincrement())
+  symbol     String  @unique @db.VarChar(20)
+  baseAsset  String  @map("base_asset") @db.VarChar(20)
+  quoteAsset String  @map("quote_asset") @db.VarChar(20)
+  name       String  @db.VarChar(100)
+  isActive   Boolean @default(true) @map("is_active")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  // Relacionamentos
+  signals   SignalHistory[]
+  favorites UserFavorite[]
+
+  @@index([symbol], name: "idx_crypto_symbol")
+  @@index([isActive], name: "idx_crypto_active")
+  @@map("cryptocurrencies")
+}
+
+// ─────────────────────────────────────────────
+// INDICADORES TÉCNICOS
+// ─────────────────────────────────────────────
+model TechnicalIndicator {
+  id          Int    @id @default(autoincrement())
+  name        String @db.VarChar(50)
+  code        String @unique @db.VarChar(50)
+  description String? @db.Text
+  // Ex: {"period": 14, "overbought": 70, "oversold": 30}
+  parameters  Json
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  // Relacionamentos
+  signals SignalHistory[]
+
+  @@map("technical_indicators")
+}
+
+// ─────────────────────────────────────────────
+// HISTÓRICO DE SINAIS (Alto Volume)
+// ─────────────────────────────────────────────
+model SignalHistory {
+  id          BigInt     @id @default(autoincrement())
+  cryptoId    Int        @map("crypto_id")
+  indicatorId Int        @map("indicator_id")
+  timeframe   String     @db.VarChar(10) // Ex: '1d', '1w', '1M'
+  signalType  SignalType @map("signal_type")
+  // Valor numérico com alta precisão (ex: RSI = 67.52, StochRSI K = 0.8234)
+  value       Decimal    @db.Decimal(18, 8)
+  // Data exata do fechamento do candle que gerou o sinal
+  generatedAt DateTime   @map("generated_at")
+  createdAt   DateTime   @default(now()) @map("created_at")
+
+  // Relacionamentos
+  crypto    Cryptocurrency     @relation(fields: [cryptoId], references: [id])
+  indicator TechnicalIndicator @relation(fields: [indicatorId], references: [id])
+
+  // Índices críticos para queries de série temporal e dashboard
+  @@index([cryptoId, timeframe], name: "idx_sig_crypto_timeframe")
+  @@index([generatedAt], name: "idx_sig_generated_at")
+  @@index([cryptoId, indicatorId, timeframe], name: "idx_sig_composite")
+  @@map("signal_history")
+}
+
+// ─────────────────────────────────────────────
+// FAVORITOS (Watchlist)
+// ─────────────────────────────────────────────
+model UserFavorite {
+  id        BigInt   @id @default(autoincrement())
+  userId    String   @map("user_id") @db.Char(36)
+  cryptoId  Int      @map("crypto_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Relacionamentos
+  user   User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  crypto Cryptocurrency @relation(fields: [cryptoId], references: [id])
+
+  // Garante que um usuário não pode adicionar a mesma moeda duas vezes
+  @@unique([userId, cryptoId], name: "idx_user_crypto_unique")
+  @@map("user_favorites")
+}
+
+// ─────────────────────────────────────────────
+// ENUMS
+// ─────────────────────────────────────────────
+enum UserRole {
+  USER
+  ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+  BANNED
+}
+
+enum BillingCycle {
+  MONTHLY
+  YEARLY
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  CANCELED
+  PAST_DUE
+  TRIALING
+}
+
+enum PaymentStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  REFUNDED
+}
+
+enum SignalType {
+  BUY
+  SELL
+  NEUTRAL
+  STRONG_BUY
+  STRONG_SELL
+}
+
+enum AdminAction {
+  ROLE_CHANGE
+  STATUS_CHANGE
+  SUBSCRIPTION_CHANGE
+  SUBSCRIPTION_CANCEL
+  SUBSCRIPTION_OVERRIDE
+  FREEMIUM_CONFIG_CHANGE
+}
+
+// ─────────────────────────────────────────────
+// LOG DE AUDITORIA ADMINISTRATIVA
+// ─────────────────────────────────────────────
+model AdminLog {
+  id           BigInt      @id @default(autoincrement())
+  adminId      String      @map("admin_id") @db.Char(36)
+  action       AdminAction
+  targetUserId String?     @map("target_user_id") @db.Char(36)
+  details      Json?
+  ipAddress    String?     @map("ip_address") @db.VarChar(45)
+  createdAt    DateTime    @default(now()) @map("created_at")
+
+  admin      User  @relation("AdminActions", fields: [adminId], references: [id])
+  targetUser User? @relation("AdminTargetActions", fields: [targetUserId], references: [id])
+
+  @@index([adminId], name: "idx_admin_log_admin")
+  @@index([createdAt], name: "idx_admin_log_date")
+  @@map("admin_logs")
+}
+
+// ─────────────────────────────────────────────
+// CONFIGURAÇÃO DINÂMICA DO FREEMIUM
+// ─────────────────────────────────────────────
+model FreemiumConfig {
+  id                Int      @id @default(1)
+  allowedSymbols    Json     @map("allowed_symbols")
+  allowedTimeframes Json     @map("allowed_timeframes")
+  maxHistoryRecords Int      @default(20) @map("max_history_records")
+  maxSignals        Int      @default(1) @map("max_signals")
+  maxFavorites      Int      @default(3) @map("max_favorites")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  @@map("freemium_config")
+}

@@ -1,0 +1,322 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+}
+
+model User {
+  id                 String         @id @default(uuid()) @db.Char(36)
+  name               String?        @db.VarChar(100)
+  email              String         @unique(map: "email") @db.VarChar(255)
+  emailVerified      DateTime?      @map("email_verified") @db.DateTime(0)
+  image              String?        @db.VarChar(255)
+  passwordHash       String?        @map("password_hash") @db.VarChar(255)
+  role               UserRole?      @default(USER)
+  status             UserStatus?    @default(ACTIVE)
+  createdAt          DateTime       @default(now()) @map("created_at") @db.Timestamp(0)
+  updatedAt          DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamp(0)
+  accounts           Account[]
+  adminActions       AdminLog[]     @relation("AdminActions")
+  adminTargetActions AdminLog[]     @relation("AdminTargetActions")
+  payments           Payment[]
+  refreshTokens      RefreshToken[]
+  sessions           Session[]
+  subscriptions      Subscription[]
+  favorites          UserFavorite[]
+
+  @@index([email], map: "idx_users_email")
+  @@index([status], map: "idx_users_status")
+  @@map("users")
+}
+
+model Account {
+  id                String  @id @default(uuid()) @db.Char(36)
+  userId            String  @map("user_id") @db.Char(36)
+  type              String  @db.VarChar(50)
+  provider          String  @db.VarChar(50)
+  providerAccountId String  @map("provider_account_id") @db.VarChar(255)
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String? @db.VarChar(50)
+  scope             String? @db.VarChar(255)
+  id_token          String? @db.Text
+  session_state     String? @db.VarChar(255)
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "fk_accounts_user")
+
+  @@unique([provider, providerAccountId], map: "idx_provider_account")
+  @@index([userId], map: "fk_accounts_user")
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(uuid()) @db.Char(36)
+  sessionToken String   @unique(map: "session_token") @map("session_token") @db.VarChar(255)
+  userId       String   @map("user_id") @db.Char(36)
+  expires      DateTime @db.DateTime(0)
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "fk_sessions_user")
+
+  @@index([userId], map: "fk_sessions_user")
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String   @db.VarChar(255)
+  token      String   @unique(map: "token") @db.VarChar(255)
+  expires    DateTime @db.DateTime(0)
+
+  @@unique([identifier, token], map: "idx_verification_identifier_token")
+  @@map("verification_tokens")
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid()) @db.Char(36)
+  token     String   @unique(map: "token") @db.VarChar(255)
+  userId    String   @map("user_id") @db.Char(36)
+  expiresAt DateTime @map("expires_at") @db.DateTime(0)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(0)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "fk_refresh_tokens_user")
+
+  @@index([userId], map: "idx_rt_user")
+  @@map("refresh_tokens")
+}
+
+model Plan {
+  id                Int            @id @default(autoincrement())
+  name              String         @db.VarChar(100)
+  description       String?        @db.Text
+  price             Decimal        @db.Decimal(10, 2)
+  billingCycle      BillingCycle?  @default(MONTHLY) @map("billing_cycle")
+  maxFavorites      Int?           @default(5) @map("max_favorites")
+  maxSignals        Int?           @default(1) @map("max_signals")
+  maxHistoryRecords Int?           @default(20) @map("max_history_records")
+  hasVipSignals     Boolean?       @default(false) @map("has_vip_signals")
+  hasSignalAlerts   Boolean?       @default(false) @map("has_signal_alerts")
+  isActive          Boolean?       @default(true) @map("is_active")
+  createdAt         DateTime       @default(now()) @map("created_at") @db.Timestamp(0)
+  updatedAt         DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamp(0)
+  subscriptions     Subscription[]
+
+  @@map("plans")
+}
+
+model Subscription {
+  id                 String              @id @default(uuid()) @db.Char(36)
+  userId             String              @map("user_id") @db.Char(36)
+  planId             Int                 @map("plan_id")
+  status             SubscriptionStatus? @default(ACTIVE)
+  currentPeriodStart DateTime            @map("current_period_start") @db.DateTime(0)
+  currentPeriodEnd   DateTime            @map("current_period_end") @db.DateTime(0)
+  canceledAt         DateTime?           @map("canceled_at") @db.DateTime(0)
+  createdAt          DateTime            @default(now()) @map("created_at") @db.Timestamp(0)
+  updatedAt          DateTime            @default(now()) @updatedAt @map("updated_at") @db.Timestamp(0)
+  payments           Payment[]
+  plan               Plan                @relation(fields: [planId], references: [id], onUpdate: Restrict, map: "fk_subscriptions_plan")
+  user               User                @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "fk_subscriptions_user")
+
+  @@index([userId, status], map: "idx_sub_user_status")
+  @@index([currentPeriodEnd], map: "idx_sub_end_date")
+  @@index([planId], map: "fk_subscriptions_plan")
+  @@map("subscriptions")
+}
+
+model Payment {
+  id                    String         @id @default(uuid()) @db.Char(36)
+  subscriptionId        String         @map("subscription_id") @db.Char(36)
+  userId                String         @map("user_id") @db.Char(36)
+  amount                Decimal        @db.Decimal(10, 2)
+  currency              String?        @default("BRL") @db.VarChar(3)
+  status                PaymentStatus? @default(PENDING)
+  paymentMethod         String         @map("payment_method") @db.VarChar(50)
+  externalTransactionId String?        @unique(map: "external_transaction_id") @map("external_transaction_id") @db.VarChar(100)
+  createdAt             DateTime       @default(now()) @map("created_at") @db.Timestamp(0)
+  updatedAt             DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamp(0)
+  subscription          Subscription   @relation(fields: [subscriptionId], references: [id], onUpdate: Restrict, map: "fk_payments_subscription")
+  user                  User           @relation(fields: [userId], references: [id], onUpdate: Restrict, map: "fk_payments_user")
+
+  @@index([userId], map: "idx_pay_user")
+  @@index([status], map: "idx_pay_status")
+  @@index([subscriptionId], map: "fk_payments_subscription")
+  @@map("payments")
+}
+
+model Cryptocurrency {
+  id         Int             @id @default(autoincrement())
+  symbol     String          @unique(map: "symbol") @db.VarChar(20)
+  baseAsset  String          @map("base_asset") @db.VarChar(20)
+  quoteAsset String          @map("quote_asset") @db.VarChar(20)
+  name       String          @db.VarChar(100)
+  isActive   Boolean?        @default(true) @map("is_active")
+  createdAt  DateTime        @default(now()) @map("created_at") @db.Timestamp(0)
+  updatedAt  DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamp(0)
+  signals    SignalHistory[]
+  favorites  UserFavorite[]
+
+  @@index([symbol], map: "idx_crypto_symbol")
+  @@index([isActive], map: "idx_crypto_active")
+  @@map("cryptocurrencies")
+}
+
+model TechnicalIndicator {
+  id          Int             @id @default(autoincrement())
+  name        String          @db.VarChar(50)
+  code        String          @unique(map: "code") @db.VarChar(50)
+  description String?         @db.Text
+  parameters  String          @db.LongText
+  createdAt   DateTime        @default(now()) @map("created_at") @db.Timestamp(0)
+  updatedAt   DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamp(0)
+  signals     SignalHistory[]
+
+  @@map("technical_indicators")
+}
+
+model SignalHistory {
+  id          BigInt             @id @default(autoincrement())
+  cryptoId    Int                @map("crypto_id")
+  indicatorId Int                @map("indicator_id")
+  timeframe   String             @db.VarChar(10)
+  signalType  SignalType         @map("signal_type")
+  value       Decimal            @db.Decimal(18, 8)
+  generatedAt DateTime           @map("generated_at") @db.DateTime(0)
+  createdAt   DateTime           @default(now()) @map("created_at") @db.Timestamp(0)
+  crypto      Cryptocurrency     @relation(fields: [cryptoId], references: [id], onUpdate: Restrict, map: "fk_signal_crypto")
+  indicator   TechnicalIndicator @relation(fields: [indicatorId], references: [id], onUpdate: Restrict, map: "fk_signal_indicator")
+
+  @@index([cryptoId, timeframe], map: "idx_sig_crypto_timeframe")
+  @@index([generatedAt], map: "idx_sig_generated_at")
+  @@index([cryptoId, indicatorId, timeframe], map: "idx_sig_composite")
+  @@index([indicatorId], map: "fk_signal_indicator")
+  @@map("signal_history")
+}
+
+model UserFavorite {
+  id        BigInt         @id @default(autoincrement())
+  userId    String         @map("user_id") @db.Char(36)
+  cryptoId  Int            @map("crypto_id")
+  createdAt DateTime       @default(now()) @map("created_at") @db.Timestamp(0)
+  crypto    Cryptocurrency @relation(fields: [cryptoId], references: [id], onUpdate: Restrict, map: "fk_favorites_crypto")
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "fk_favorites_user")
+
+  @@unique([userId, cryptoId], name: "idx_user_crypto_unique", map: "idx_user_crypto_unique")
+  @@index([cryptoId], map: "fk_favorites_crypto")
+  @@map("user_favorites")
+}
+
+model AdminLog {
+  id           BigInt      @id @default(autoincrement())
+  adminId      String      @map("admin_id") @db.Char(36)
+  action       AdminAction
+  targetUserId String?     @map("target_user_id") @db.Char(36)
+  details      String?     @db.LongText
+  ipAddress    String?     @map("ip_address") @db.VarChar(45)
+  createdAt    DateTime    @default(now()) @map("created_at") @db.Timestamp(0)
+  admin        User        @relation("AdminActions", fields: [adminId], references: [id], onUpdate: Restrict, map: "fk_admin_log_admin")
+  targetUser   User?       @relation("AdminTargetActions", fields: [targetUserId], references: [id], onDelete: Restrict, onUpdate: Restrict, map: "fk_admin_log_target")
+
+  @@index([adminId], map: "idx_admin_log_admin")
+  @@index([createdAt], map: "idx_admin_log_date")
+  @@index([targetUserId], map: "fk_admin_log_target")
+  @@map("admin_logs")
+}
+
+model FreemiumConfig {
+  id                Int      @id @default(1)
+  allowedSymbols    String   @map("allowed_symbols") @db.LongText
+  allowedTimeframes String   @map("allowed_timeframes") @db.LongText
+  maxHistoryRecords Int?     @default(20) @map("max_history_records")
+  maxSignals        Int?     @default(1) @map("max_signals")
+  maxFavorites      Int?     @default(3) @map("max_favorites")
+  updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(0)
+
+  @@map("freemium_config")
+}
+
+model candles {
+  symbol                       String      @db.VarChar(20)
+  timeframe                    String      @db.VarChar(10)
+  open_time                    BigInt
+  close_time                   BigInt
+  open                         Decimal     @db.Decimal(20, 8)
+  high                         Decimal     @db.Decimal(20, 8)
+  low                          Decimal     @db.Decimal(20, 8)
+  close                        Decimal     @db.Decimal(20, 8)
+  volume                       Decimal     @db.Decimal(20, 8)
+  quote_asset_volume           Decimal     @db.Decimal(20, 8)
+  number_of_trades             Int
+  taker_buy_base_asset_volume  Decimal     @db.Decimal(20, 8)
+  taker_buy_quote_asset_volume Decimal     @db.Decimal(20, 8)
+  indicators                   indicators?
+
+  @@id([symbol, timeframe, open_time])
+  @@index([close_time], map: "idx_candles_close_time")
+}
+
+model indicators {
+  symbol      String   @db.VarChar(20)
+  timeframe   String   @db.VarChar(10)
+  open_time   BigInt
+  rsi_k       Decimal? @db.Decimal(18, 8)
+  rsi_d       Decimal? @db.Decimal(18, 8)
+  rsi         Decimal? @db.Decimal(18, 8)
+  rsi_ma      Decimal? @db.Decimal(18, 8)
+  macd        Decimal? @db.Decimal(18, 8)
+  macd_signal Decimal? @db.Decimal(18, 8)
+  ema1        Decimal? @db.Decimal(18, 8)
+  ema2        Decimal? @db.Decimal(18, 8)
+  candles     candles  @relation(fields: [symbol, timeframe, open_time], references: [symbol, timeframe, open_time], onDelete: Cascade, onUpdate: Restrict, map: "fk_indicators_candles")
+
+  @@id([symbol, timeframe, open_time])
+}
+
+enum UserRole {
+  USER
+  ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+  BANNED
+}
+
+enum BillingCycle {
+  MONTHLY
+  YEARLY
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  CANCELED
+  PAST_DUE
+  TRIALING
+}
+
+enum PaymentStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  REFUNDED
+}
+
+enum SignalType {
+  BUY
+  SELL
+  NEUTRAL
+  STRONG_BUY
+  STRONG_SELL
+}
+
+enum AdminAction {
+  ROLE_CHANGE
+  STATUS_CHANGE
+  SUBSCRIPTION_CHANGE
+  SUBSCRIPTION_CANCEL
+  SUBSCRIPTION_OVERRIDE
+  FREEMIUM_CONFIG_CHANGE
+  PLAN_CHANGE
+  CRYPTO_STATUS_CHANGE
+  CRYPTO_SYNC
+}

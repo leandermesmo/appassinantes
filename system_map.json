@@ -1,0 +1,32 @@
+{
+  "data_pipeline": {
+    "description": "Ingestão via Binance API e cálculo de indicadores técnicos (RSI, MACD).",
+    "files": ["ingestion.service.ts", "indicator.service.ts", "candle.repository.ts"],
+    "critical": ["Convergência matemática do RSI", "Rate limits da API externa"],
+    "dependencies": ["Binance API", "MySQL"]
+  },
+  "analysis_terminal": {
+    "description": "Dashboard de visualização, monitoramento realtime e gestão de favoritos.",
+    "files": ["market.routes.ts", "favorite.routes.ts", "dashboard/page.tsx"],
+    "critical": ["Latência no WebSocket", "Re-renders excessivos no frontend"],
+    "dependencies": ["Fastify", "Next.js", "WebSockets"]
+  },
+  "saas_engine": {
+    "description": "Controle de autenticação, tiers freemium e ciclo de vida de assinaturas.",
+    "files": ["freemium.middleware.ts", "subscription.service.ts", "auth.ts"],
+    "critical": ["Segurança do JWT", "Bypass de limites server-side"],
+    "dependencies": ["NextAuth", "Prisma"]
+  },
+  "market_signals": {
+    "description": "Geração automática de sinais de compra/venda baseados em tendências.",
+    "files": ["signal.routes.ts", "market-signal.controller.ts"],
+    "critical": ["Falso-positivos em mercados laterais"],
+    "dependencies": ["IndicatorService"]
+  },
+  "admin_backoffice": {
+    "description": "Gestão operacional de usuários, planos, ativos e configurações globais.",
+    "files": ["admin.routes.ts", "admin.service.ts"],
+    "critical": ["Privilégios de superusuário", "Integridade dos dados de faturamento"],
+    "dependencies": ["RBAC"]
+  }
+}
